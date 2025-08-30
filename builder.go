@@ -1,0 +1,318 @@
+package surf
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/enetx/g"
+	"github.com/enetx/g/cmp"
+	"github.com/enetx/http"
+)
+
+type Builder struct {
+	cli                      *Client
+	proxy                    any                                        // Proxy configuration.
+	checkRedirect            func(*http.Request, []*http.Request) error // Redirect policy.
+	http2settings            *HTTP2Settings                             // HTTP2 settings.
+	retryCodes               g.Slice[int]                               // Codes for retry attempts.
+	cliMWs                   g.MapOrd[func(*Client), int]               // Client-level middlewares.
+	retryWait                time.Duration                              // Wait time between retries.
+	retryMax                 int                                        // Maximum retry attempts.
+	maxRedirects             int                                        // Maximum number of redirects to follow.
+	forseHTTP1               bool                                       // Use HTTP/1.1.
+	cacheBody                bool                                       // Cache response bodies.
+	followOnlyHostRedirects  bool                                       // Follow redirects only to the same host.
+	forwardHeadersOnRedirect bool                                       // Forward headers on redirects.
+	ja                       bool                                       // Use JA.
+	session                  bool                                       // Use Session.
+	singleton                bool                                       // Use Singleton.
+}
+
+// Build sets the provided settings for the client and returns the updated client.
+// It configures various settings like HTTP2, sessions, keep-alive, dial TLS, resolver,
+// interface address, timeout, and redirect policy.
+func (b *Builder) Build() *Client {
+	// sort client middlewares by priority and apply each middleware to the Client
+	b.cliMWs.SortByValue(cmp.Cmp)
+	b.cliMWs.Iter().Keys().ForEach(func(m func(*Client)) { m(b.cli) })
+
+	return b.cli
+}
+
+// With adds middleware to the client.
+// It accepts various types of middleware functions and adds them to the client builder.
+//
+// Parameters:
+//   - middleware: The middleware function to add. It can be one of the following types:
+//     1. func(*surf.Client): Client middleware function, which modifies the client itself.
+//     2. func(*surf.Request) error: Request middleware function, which intercepts and potentially modifies outgoing requests.
+//     3. func(*surf.Response) error: Response middleware function, which intercepts and potentially modifies incoming responses.
+//   - priority (optional): Priority of the middleware. Defaults to 0 if not provided.
+//
+// If the provided middleware is of an unsupported type, With panics with an error message indicating the invalid middleware type.
+//
+// Example usage:
+//
+//	// Adding client middleware to modify client settings.
+//	.With(func(client *surf.Client) {
+//	    // Custom logic to modify the client settings.
+//	})
+//
+//	// Adding request middleware to intercept outgoing requests.
+//	.With(func(req *surf.Request) error {
+//	    // Custom logic to modify outgoing requests.
+//	    return nil
+//	})
+//
+//	// Adding response middleware to intercept incoming responses.
+//	.With(func(resp *surf.Response) error {
+//	    // Custom logic to handle incoming responses.
+//	    return nil
+//	})
+//
+// Note: Ensure that middleware functions adhere to the specified function signatures to work correctly with the With method.
+func (b *Builder) With(middleware any, priority ...int) *Builder {
+	p := g.Slice[int](priority).Get(0).UnwrapOrDefault()
+
+	switch v := middleware.(type) {
+	case func(*Client):
+		b.addCliMW(v, p)
+	case func(*Request) error:
+		b.addReqMW(v, p)
+	case func(*Response) error:
+		b.addRespMW(v, p)
+	default:
+		panic(fmt.Sprintf("invalid middleware type: %T", v))
+	}
+
+	return b
+}
+
+// addCliMW adds a client middleware to the ClientBuilder.
+func (b *Builder) addCliMW(m func(*Client), priority int) *Builder {
+	b.cliMWs.Set(m, priority)
+	return b
+}
+
+// addReqMW adds a request middleware to the ClientBuilder.
+func (b *Builder) addReqMW(m func(*Request) error, priority int) *Builder {
+	b.cli.reqMWs.Set(m, priority)
+	return b
+}
+
+// addRespMW adds a response middleware to the ClientBuilder.
+func (b *Builder) addRespMW(m func(*Response) error, priority int) *Builder {
+	b.cli.respMWs.Set(m, priority)
+	return b
+}
+
+func (b *Builder) Boundary(boundary func() g.String) *Builder {
+	return b.addCliMW(func(client *Client) { boundaryMW(client, boundary) }, 999)
+}
+
+// Singleton configures the client to use a singleton instance, ensuring there's only one client instance.
+// This is needed specifically for JA or Impersonate functionalities.
+//
+//	cli := surf.NewClient().
+//		Builder().
+//		Singleton(). // for reuse client
+//		Impersonate().
+//		FireFox().
+//		Build()
+//
+//	defer cli.CloseIdleConnections()
+func (b *Builder) Singleton() *Builder {
+	b.singleton = true
+	return b
+}
+
+// H2C configures the client to handle HTTP/2 Cleartext (h2c).
+func (b *Builder) H2C() *Builder { return b.addCliMW(h2cMW, 999) }
+
+// HTTP2Settings configures settings related to HTTP/2 and returns an http2s struct.
+func (b *Builder) HTTP2Settings() *HTTP2Settings {
+	h2 := &HTTP2Settings{builder: b}
+	b.http2settings = h2
+
+	return h2
+}
+
+// Impersonate configures something related to impersonation and returns an impersonate struct.
+func (b *Builder) Impersonate() *Impersonate { return &Impersonate{builder: b} }
+
+// JA configures the client to use a specific TLS fingerprint.
+func (b *Builder) JA() *JA {
+	b.ja = true
+	return &JA{builder: b}
+}
+
+// UnixDomainSocket sets the path for a Unix domain socket.
+// This allows the HTTP client to connect to the server using a Unix domain
+// socket instead of a traditional TCP/IP connection.
+func (b *Builder) UnixDomainSocket(socketPath g.String) *Builder {
+	return b.addCliMW(func(client *Client) { unixDomainSocketMW(client, socketPath) }, 0)
+}
+
+// DNS sets the custom DNS resolver address.
+func (b *Builder) DNS(dns g.String) *Builder {
+	return b.addCliMW(func(client *Client) { dnsMW(client, dns) }, 0)
+}
+
+// DNSOverTLS configures the client to use DNS over TLS.
+func (b *Builder) DNSOverTLS() *DNSOverTLS { return &DNSOverTLS{builder: b} }
+
+// Timeout sets the timeout duration for the client.
+func (b *Builder) Timeout(timeout time.Duration) *Builder {
+	return b.addCliMW(func(client *Client) { timeoutMW(client, timeout) }, 0)
+}
+
+// InterfaceAddr sets the network interface address for the client.
+func (b *Builder) InterfaceAddr(address g.String) *Builder {
+	return b.addCliMW(func(client *Client) { interfaceAddrMW(client, address) }, 0)
+}
+
+// Proxy sets the proxy settings for the client.
+func (b *Builder) Proxy(proxy any) *Builder {
+	b.proxy = proxy
+	return b.addCliMW(func(client *Client) { proxyMW(client, proxy) }, 0)
+}
+
+// BasicAuth sets the basic authentication credentials for the client.
+func (b *Builder) BasicAuth(authentication g.String) *Builder {
+	return b.addReqMW(func(req *Request) error { return basicAuthMW(req, authentication) }, 900)
+}
+
+// BearerAuth sets the bearer token for the client.
+func (b *Builder) BearerAuth(authentication g.String) *Builder {
+	return b.addReqMW(func(req *Request) error { return bearerAuthMW(req, authentication) }, 901)
+}
+
+// UserAgent sets the user agent for the client.
+func (b *Builder) UserAgent(userAgent any) *Builder {
+	return b.addReqMW(func(req *Request) error { return userAgentMW(req, userAgent) }, 0)
+}
+
+// SetHeaders sets headers for the request, replacing existing ones with the same name.
+func (b *Builder) SetHeaders(headers ...any) *Builder {
+	return b.addReqMW(func(r *Request) error {
+		r.SetHeaders(headers...)
+		return nil
+	}, 0)
+}
+
+// AddHeaders adds headers to the request, appending to any existing headers with the same name.
+func (b *Builder) AddHeaders(headers ...any) *Builder {
+	return b.addReqMW(func(r *Request) error {
+		r.AddHeaders(headers...)
+		return nil
+	}, 0)
+}
+
+// AddCookies adds cookies to the request.
+func (b *Builder) AddCookies(cookies ...*http.Cookie) *Builder {
+	return b.addReqMW(func(r *Request) error {
+		r.AddCookies(cookies...)
+		return nil
+	}, 0)
+}
+
+// WithContext associates the provided context with the request.
+func (b *Builder) WithContext(ctx context.Context) *Builder {
+	return b.addReqMW(func(r *Request) error {
+		r.WithContext(ctx)
+		return nil
+	}, 0)
+}
+
+// ContentType sets the content type for the client.
+func (b *Builder) ContentType(contentType g.String) *Builder {
+	return b.addReqMW(func(req *Request) error { return contentTypeMW(req, contentType) }, 0)
+}
+
+// CacheBody configures whether the client should cache the body of the response.
+func (b *Builder) CacheBody() *Builder {
+	b.cacheBody = true
+	return b
+}
+
+// GetRemoteAddress configures whether the client should get the remote address.
+func (b *Builder) GetRemoteAddress() *Builder { return b.addReqMW(remoteAddrMW, 0) }
+
+// DisableKeepAlive disable keep-alive connections.
+func (b *Builder) DisableKeepAlive() *Builder { return b.addCliMW(disableKeepAliveMW, 0) }
+
+// DisableCompression disables compression for the HTTP client.
+func (b *Builder) DisableCompression() *Builder { return b.addCliMW(disableCompressionMW, 0) }
+
+// Retry configures the retry behavior of the client.
+//
+// Parameters:
+//
+//	retryMax: Maximum number of retries to be attempted.
+//	retryWait: Duration to wait between retries.
+//	codes: Optional list of HTTP status codes that trigger retries.
+//	       If no codes are provided, default codes will be used
+//	       (500, 429, 503 - Internal Server Error, Too Many Requests, Service Unavailable).
+func (b *Builder) Retry(retryMax int, retryWait time.Duration, codes ...int) *Builder {
+	b.retryMax = retryMax
+	b.retryWait = retryWait
+
+	if len(codes) == 0 {
+		b.retryCodes = g.SliceOf(
+			http.StatusInternalServerError,
+			http.StatusTooManyRequests,
+			http.StatusServiceUnavailable,
+		)
+	} else {
+		b.retryCodes = g.SliceOf(codes...)
+	}
+
+	return b
+}
+
+// ForceHTTP1MW configures the client to use HTTP/1.1 forcefully.
+func (b *Builder) ForceHTTP1() *Builder {
+	b.forseHTTP1 = true
+	return b.addCliMW(forseHTTP1MW, 0)
+}
+
+// Session configures whether the client should maintain a session.
+func (b *Builder) Session() *Builder {
+	b.session = true
+	return b.addCliMW(sessionMW, 0)
+}
+
+// MaxRedirects sets the maximum number of redirects the client should follow.
+func (b *Builder) MaxRedirects(maxRedirects int) *Builder {
+	b.maxRedirects = maxRedirects
+	return b.addCliMW(redirectPolicyMW, 0)
+}
+
+// NotFollowRedirects disables following redirects for the client.
+func (b *Builder) NotFollowRedirects() *Builder {
+	return b.RedirectPolicy(func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse })
+}
+
+// FollowOnlyHostRedirects configures whether the client should only follow redirects within the
+// same host.
+func (b *Builder) FollowOnlyHostRedirects() *Builder {
+	b.followOnlyHostRedirects = true
+	return b.addCliMW(redirectPolicyMW, 0)
+}
+
+// ForwardHeadersOnRedirect adds a middleware to the ClientBuilder object that ensures HTTP headers are
+// forwarded during a redirect.
+func (b *Builder) ForwardHeadersOnRedirect() *Builder {
+	b.forwardHeadersOnRedirect = true
+	return b.addCliMW(redirectPolicyMW, 0)
+}
+
+// RedirectPolicy sets a custom redirect policy for the client.
+func (b *Builder) RedirectPolicy(fn func(*http.Request, []*http.Request) error) *Builder {
+	b.checkRedirect = fn
+	return b.addCliMW(redirectPolicyMW, 0)
+}
+
+// String generate a string representation of the ClientBuilder instance.
+func (b Builder) String() string { return fmt.Sprintf("%#v", b) }
