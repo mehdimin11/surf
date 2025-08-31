@@ -53,6 +53,11 @@ func (j *JA) SetHelloSpec(spec utls.ClientHelloSpec) *Builder {
 
 func (j *JA) build() *Builder {
 	return j.builder.addCliMW(func(c *Client) {
+		// JA3 fingerprinting is not compatible with HTTP/3 - skip if HTTP/3 is used
+		if _, ok := c.GetTransport().(*uquicTransport); ok {
+			return
+		}
+
 		if !j.builder.singleton {
 			j.builder.addRespMW(closeIdleConnectionsMW, 0)
 		}

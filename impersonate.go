@@ -52,6 +52,9 @@ func (im *Impersonate) IOS() *Impersonate {
 
 // Chrome impersonates Chrome browser v.131.
 func (im *Impersonate) Chrome() *Builder {
+	// Set current browser type for automatic HTTP/3 detection
+	im.builder.browser = chrome
+
 	// "ja3_hash": random,
 	// "ja4": "t13d1516h2_8daaf6152771_b1ff8ab2d16f",
 	// "peetprint_hash": "7466733991096b3f4e6c0e79b0083559",
@@ -195,6 +198,9 @@ func (im *Impersonate) Chrome() *Builder {
 
 // Firefox impersonates Firefox browser v.131.
 func (im *Impersonate) FireFox() *Builder {
+	// Set current browser type for automatic HTTP/3 detection
+	im.builder.browser = firefox
+
 	priorityFrames := []http2.PriorityFrame{
 		{
 			FrameHeader: http2.FrameHeader{StreamID: 3},

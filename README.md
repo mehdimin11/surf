@@ -23,7 +23,10 @@
 
 ### 🔒 **Advanced TLS & Security**
 - **Custom JA3/JA4**: Configure precise TLS fingerprints with `HelloID` and `HelloSpec`
+- **HTTP/3 Support**: Full HTTP/3 over QUIC with browser-specific QUIC fingerprinting
+- **JA4QUIC Fingerprinting**: Advanced QUIC transport parameter fingerprinting for Chrome and Firefox
 - **HTTP/2 & HTTP/3**: Full HTTP/2 support with customizable settings (SETTINGS frame, window size, priority)
+- **Ordered Headers**: Browser-accurate header ordering for perfect fingerprint evasion
 - **Certificate Pinning**: Custom TLS certificate validation
 - **DNS-over-TLS**: Enhanced privacy with DoT support
 - **Proxy Support**: HTTP, HTTPS, and SOCKS5 proxy configurations with rotation support
@@ -33,7 +36,7 @@
 - **Automatic Retries**: Configurable retry logic with custom status codes
 - **Response Caching**: Built-in body caching for repeated access
 - **Streaming Support**: Efficient handling of large responses and SSE
-- **Compression**: Automatic handling of gzip, deflate, brotli, and zstd
+- **Compression**: Automatic decompression of gzip, deflate, brotli, and zstd responses
 - **Keep-Alive**: Persistent connections with configurable parameters
 
 ### 🛠️ **Developer Experience**
@@ -76,7 +79,9 @@ resp, err := stdClient.Get("https://api.example.com")
 **Preserved Features When Using Std():**
 - ✅ JA3/TLS fingerprinting
 - ✅ HTTP/2 settings
+- ✅ HTTP/3 & QUIC fingerprinting
 - ✅ Browser impersonation headers
+- ✅ Ordered headers
 - ✅ Cookies and sessions
 - ✅ Proxy configuration
 - ✅ Custom headers and User-Agent
@@ -175,6 +180,118 @@ client := surf.NewClient().
     Build()
 ```
 
+## 🚀 HTTP/3 & QUIC Support
+
+### Chrome HTTP/3 with Automatic Detection
+
+```go
+// Automatic HTTP/3 with Chrome fingerprinting
+client := surf.NewClient().
+    Builder().
+    Impersonate().Chrome().
+    HTTP3().        // Auto-detects Chrome and applies appropriate QUIC settings
+    Build()
+
+resp := client.Get("https://cloudflare-quic.com/").Do()
+if resp.IsOk() {
+    fmt.Printf("Protocol: %s\n", resp.Ok().Proto) // HTTP/3.0
+}
+```
+
+### Firefox HTTP/3
+
+```go
+// Firefox with HTTP/3 fingerprinting
+client := surf.NewClient().
+    Builder().
+    Impersonate().FireFox().
+    HTTP3().        // Auto-detects Firefox and applies Firefox QUIC settings
+    Build()
+
+resp := client.Get("https://cloudflare-quic.com/").Do()
+```
+
+### Manual HTTP/3 Configuration
+
+```go
+// Custom QUIC fingerprint with Chrome settings
+client := surf.NewClient().
+    Builder().
+    HTTP3Settings().Chrome().Set().
+    Build()
+
+// Custom QUIC fingerprint with Firefox settings
+client := surf.NewClient().
+    Builder().
+    HTTP3Settings().Firefox().Set().
+    Build()
+
+// Custom QUIC ID
+client := surf.NewClient().
+    Builder().
+    HTTP3Settings().
+    SetQUICID(uquic.QUICChrome_115).
+    Set().
+    Build()
+
+// Custom QUIC Spec
+spec, _ := uquic.QUICID2Spec(uquic.QUICFirefox_116)
+client := surf.NewClient().
+    Builder().
+    HTTP3Settings().
+    SetQUICSpec(spec).
+    Set().
+    Build()
+```
+
+### HTTP/3 with JA3 Fingerprinting
+
+```go
+// Combine TLS fingerprinting with HTTP/3 QUIC fingerprinting
+client := surf.NewClient().
+    Builder().
+    JA().Chrome131().               // TLS fingerprint (JA3/JA4)
+    HTTP3Settings().Chrome().Set().  // QUIC fingerprint (JA4QUIC)
+    Build()
+
+resp := client.Get("https://cloudflare-quic.com/").Do()
+```
+
+### HTTP/3 Compatibility & Fallbacks
+
+HTTP/3 automatically handles compatibility issues:
+
+```go
+// With proxy - automatically falls back to HTTP/2
+client := surf.NewClient().
+    Builder().
+    Proxy("http://proxy:8080").     // HTTP/3 incompatible with proxies
+    HTTP3Settings().Chrome().Set(). // Will use HTTP/2 instead
+    Build()
+
+// With DNS settings - works seamlessly
+client := surf.NewClient().
+    Builder().
+    DNS("8.8.8.8:53").             // Custom DNS works with HTTP/3
+    HTTP3Settings().Chrome().Set().
+    Build()
+
+// With DNS-over-TLS - works seamlessly
+client := surf.NewClient().
+    Builder().
+    DNSOverTLS().Google().          // DoT works with HTTP/3
+    HTTP3Settings().Chrome().Set().
+    Build()
+```
+
+**Key HTTP/3 Features:**
+- ✅ **QUIC Fingerprinting**: Chrome and Firefox QUIC transport parameter matching
+- ✅ **Header Ordering**: Perfect browser-like header sequence preservation
+- ✅ **Automatic Fallback**: Smart fallback to HTTP/2 when proxies are configured
+- ✅ **DNS Integration**: Custom DNS and DNS-over-TLS support
+- ✅ **JA4QUIC Support**: Advanced QUIC fingerprinting beyond basic JA3/JA4
+- ✅ **Order Independence**: `HTTP3()` works regardless of call order
+
 ## 🔧 Advanced Configuration
 
 ### Custom JA3 Fingerprint
@@ -228,6 +345,23 @@ client := surf.NewClient().
     MaxHeaderListSize(262144).
     ConnectionFlow(15663105).
     Set().
+    Build()
+```
+
+### HTTP/3 Configuration
+
+```go
+// Automatic browser detection
+client := surf.NewClient().
+    Builder().
+    Impersonate().Chrome().
+    HTTP3().
+    Build()
+
+// Manual configuration
+client := surf.NewClient().
+    Builder().
+    HTTP3Settings().Chrome().Set().
     Build()
 ```
 
@@ -666,6 +800,8 @@ resp := surf.NewClient().
 | `Impersonate()` | Enable browser impersonation |
 | `JA()` | Configure JA3/JA4 fingerprinting |
 | `HTTP2Settings()` | Configure HTTP/2 parameters |
+| `HTTP3Settings()` | Configure HTTP/3 & QUIC parameters |
+| `HTTP3()` | Enable HTTP/3 with automatic browser detection |
 | `H2C()` | Enable HTTP/2 cleartext |
 | `Proxy(proxy)` | Set proxy configuration (string, []string for rotation) |
 | `DNS(dns)` | Set custom DNS resolver |
@@ -756,6 +892,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🙏 Acknowledgments
 
 - Built with [enetx/http](https://github.com/enetx/http) for enhanced HTTP functionality
+- HTTP/3 support powered by [quic-go](https://github.com/quic-go/quic-go)
+- QUIC fingerprinting using [uQUIC](https://github.com/refraction-networking/uquic)
 - TLS fingerprinting powered by [uTLS](https://github.com/refraction-networking/utls)
 - Generic utilities from [enetx/g](https://github.com/enetx/g)
 

@@ -10,11 +10,20 @@ import (
 	"github.com/enetx/http"
 )
 
+type browser int
+
+const (
+	unknown browser = iota
+	chrome
+	firefox
+)
+
 type Builder struct {
 	cli                      *Client
 	proxy                    any                                        // Proxy configuration.
 	checkRedirect            func(*http.Request, []*http.Request) error // Redirect policy.
 	http2settings            *HTTP2Settings                             // HTTP2 settings.
+	http3settings            *HTTP3Settings                             // HTTP3 settings.
 	retryCodes               g.Slice[int]                               // Codes for retry attempts.
 	cliMWs                   g.MapOrd[func(*Client), int]               // Client-level middlewares.
 	retryWait                time.Duration                              // Wait time between retries.
@@ -27,12 +36,29 @@ type Builder struct {
 	ja                       bool                                       // Use JA.
 	session                  bool                                       // Use Session.
 	singleton                bool                                       // Use Singleton.
+	browser                  browser                                    // Current browser being impersonated.
+	http3                    bool                                       // Enable HTTP/3 with auto-detection.
 }
 
 // Build sets the provided settings for the client and returns the updated client.
 // It configures various settings like HTTP2, sessions, keep-alive, dial TLS, resolver,
 // interface address, timeout, and redirect policy.
 func (b *Builder) Build() *Client {
+	// Apply HTTP/3 settings lazily if enabled
+	if b.http3 {
+		http3s := b.HTTP3Settings()
+
+		switch b.browser {
+		case chrome:
+			http3s.Chrome().Set()
+		case firefox:
+			http3s.Firefox().Set()
+		default:
+			// Default to Chrome if no browser was detected
+			http3s.Chrome().Set()
+		}
+	}
+
 	// sort client middlewares by priority and apply each middleware to the Client
 	b.cliMWs.SortByValue(cmp.Cmp)
 	b.cliMWs.Iter().Keys().ForEach(func(m func(*Client)) { m(b.cli) })
@@ -136,6 +162,23 @@ func (b *Builder) HTTP2Settings() *HTTP2Settings {
 	b.http2settings = h2
 
 	return h2
+}
+
+// HTTP3Settings configures settings related to HTTP/3 and returns an http3s struct.
+func (b *Builder) HTTP3Settings() *HTTP3Settings {
+	h3 := &HTTP3Settings{builder: b}
+	b.http3settings = h3
+	b.http3 = false
+
+	return h3
+}
+
+// HTTP3 enables HTTP/3 with automatic browser detection.
+// Settings are applied lazily in Build() based on the impersonated browser.
+// Usage: surf.NewClient().Builder().Impersonate().Chrome().HTTP3().Build()
+func (b *Builder) HTTP3() *Builder {
+	b.http3 = true
+	return b
 }
 
 // Impersonate configures something related to impersonation and returns an impersonate struct.

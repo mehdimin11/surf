@@ -207,6 +207,11 @@ func proxyMW(client *Client, proxys any) {
 }
 
 func h2cMW(client *Client) {
+	// H2C is incompatible with HTTP/3 transport - skip if HTTP/3 is being used
+	if _, ok := client.transport.(*uquicTransport); ok {
+		return
+	}
+
 	t2 := new(http2.Transport)
 
 	t2.AllowHTTP = true

@@ -106,6 +106,12 @@ func (c *Client) GetDialer() *net.Dialer { return c.dialer }
 // GetTransport returns the http.transport used by the Client.
 func (c *Client) GetTransport() http.RoundTripper { return c.transport }
 
+// IsHTTP3 returns true if the client is configured to use HTTP/3.
+func (c *Client) IsHTTP3() bool {
+	_, ok := c.transport.(*uquicTransport)
+	return ok
+}
+
 // GetTLSConfig returns the tls.Config used by the Client.
 func (c *Client) GetTLSConfig() *tls.Config { return c.tlsConfig }
 

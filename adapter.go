@@ -1,10 +1,10 @@
 package surf
 
 import (
-	"net/http"
+	_http "net/http"
 	"net/url"
 
-	_http "github.com/enetx/http"
+	"github.com/enetx/http"
 )
 
 // Std returns a standard net/http.Client that wraps the configured surf client.
@@ -45,13 +45,13 @@ import (
 //	botClient := &BaseBotClient{
 //		Client: *stdClient,
 //	}
-func (c *Client) Std() *http.Client {
-	var jar http.CookieJar
+func (c *Client) Std() *_http.Client {
+	var jar _http.CookieJar
 	if c.cli.Jar != nil {
 		jar = &CookieJarAdapter{jar: c.cli.Jar}
 	}
 
-	return &http.Client{
+	return &_http.Client{
 		Transport: &TransportAdapter{
 			transport: c.transport,
 			client:    c,
@@ -65,7 +65,7 @@ func (c *Client) Std() *http.Client {
 // TransportAdapter adapts surf.Client to net/http.RoundTripper
 // It uses the full surf pipeline including middleware
 type TransportAdapter struct {
-	transport _http.RoundTripper
+	transport http.RoundTripper
 	client    *Client
 }
 
@@ -76,7 +76,7 @@ func (s *TransportAdapter) CloseIdleConnections() {
 }
 
 // RoundTrip implements net/http.RoundTripper interface using surf's full pipeline
-func (s *TransportAdapter) RoundTrip(req *http.Request) (*http.Response, error) {
+func (s *TransportAdapter) RoundTrip(req *_http.Request) (*_http.Response, error) {
 	sreq := &Request{
 		request: request(req),
 		cli:     s.client,
@@ -109,105 +109,72 @@ func (s *TransportAdapter) RoundTrip(req *http.Request) (*http.Response, error) 
 // request converts net/http.Request to github.com/enetx/http.Request.
 // It preserves all fields including headers, body, and context while
 // adapting to the enetx/http package types.
-func request(req *http.Request) *_http.Request {
-	_req := &_http.Request{
-		Method:           req.Method,
-		URL:              req.URL,
-		Proto:            req.Proto,
-		ProtoMajor:       req.ProtoMajor,
-		ProtoMinor:       req.ProtoMinor,
-		Header:           _http.Header(req.Header),
-		Body:             req.Body,
-		ContentLength:    req.ContentLength,
-		TransferEncoding: req.TransferEncoding,
-		Close:            req.Close,
-		Host:             req.Host,
-		Form:             req.Form,
-		PostForm:         req.PostForm,
-		MultipartForm:    req.MultipartForm,
-		Trailer:          _http.Header(req.Trailer),
-		RemoteAddr:       req.RemoteAddr,
-		RequestURI:       req.RequestURI,
-		TLS:              req.TLS,
+func request(_req *_http.Request) *http.Request {
+	req := &http.Request{
+		Method:           _req.Method,
+		URL:              _req.URL,
+		Proto:            _req.Proto,
+		ProtoMajor:       _req.ProtoMajor,
+		ProtoMinor:       _req.ProtoMinor,
+		Header:           http.Header(_req.Header),
+		Body:             _req.Body,
+		ContentLength:    _req.ContentLength,
+		TransferEncoding: _req.TransferEncoding,
+		Close:            _req.Close,
+		Host:             _req.Host,
+		Form:             _req.Form,
+		PostForm:         _req.PostForm,
+		MultipartForm:    _req.MultipartForm,
+		Trailer:          http.Header(_req.Trailer),
+		RemoteAddr:       _req.RemoteAddr,
+		RequestURI:       _req.RequestURI,
+		TLS:              _req.TLS,
 		Response:         nil,
-		GetBody:          req.GetBody,
-		Pattern:          req.Pattern,
-		Cancel:           req.Cancel, // deprecated but kept for compatibility
+		GetBody:          _req.GetBody,
+		Pattern:          _req.Pattern,
+		Cancel:           _req.Cancel, // deprecated but kept for compatibility
 	}
 
-	return _req.WithContext(req.Context())
+	return req.WithContext(_req.Context())
 }
 
 // response converts github.com/enetx/http.Response to net/http.Response.
 // It preserves all response fields including status, headers, and body
 // while adapting back to standard net/http types.
-func response(_resp *_http.Response, req *http.Request) *http.Response {
-	return &http.Response{
-		Status:           _resp.Status,
-		StatusCode:       _resp.StatusCode,
-		Proto:            _resp.Proto,
-		ProtoMajor:       _resp.ProtoMajor,
-		ProtoMinor:       _resp.ProtoMinor,
-		Header:           http.Header(_resp.Header),
-		Body:             _resp.Body,
-		ContentLength:    _resp.ContentLength,
-		TransferEncoding: _resp.TransferEncoding,
-		Close:            _resp.Close,
-		Uncompressed:     _resp.Uncompressed,
-		Trailer:          http.Header(_resp.Trailer),
-		Request:          req,
-		TLS:              _resp.TLS,
+func response(resp *http.Response, _req *_http.Request) *_http.Response {
+	return &_http.Response{
+		Status:           resp.Status,
+		StatusCode:       resp.StatusCode,
+		Proto:            resp.Proto,
+		ProtoMajor:       resp.ProtoMajor,
+		ProtoMinor:       resp.ProtoMinor,
+		Header:           _http.Header(resp.Header),
+		Body:             resp.Body,
+		ContentLength:    resp.ContentLength,
+		TransferEncoding: resp.TransferEncoding,
+		Close:            resp.Close,
+		Uncompressed:     resp.Uncompressed,
+		Trailer:          _http.Header(resp.Trailer),
+		Request:          _req,
+		TLS:              resp.TLS,
 	}
 }
 
 // CookieJarAdapter adapts github.com/enetx/http.CookieJar to net/http.CookieJar.
 // It provides bidirectional cookie conversion between the two HTTP packages,
 // ensuring cookies set through either interface work correctly.
-type CookieJarAdapter struct{ jar _http.CookieJar }
+type CookieJarAdapter struct{ jar http.CookieJar }
 
 // SetCookies implements http.CookieJar interface.
 // It converts standard net/http cookies to enetx/http format and
 // delegates to the underlying surf cookie jar.
-func (c *CookieJarAdapter) SetCookies(u *url.URL, cookies []*http.Cookie) {
-	if len(cookies) == 0 {
+func (c *CookieJarAdapter) SetCookies(u *url.URL, _cookies []*_http.Cookie) {
+	if len(_cookies) == 0 {
 		c.jar.SetCookies(u, nil)
 		return
 	}
 
-	_cookies := make([]*_http.Cookie, 0, len(cookies))
-	for _, ck := range cookies {
-		_cookies = append(_cookies, &_http.Cookie{
-			Name:        ck.Name,
-			Value:       ck.Value,
-			Quoted:      ck.Quoted,
-			Path:        ck.Path,
-			Domain:      ck.Domain,
-			Expires:     ck.Expires,
-			RawExpires:  ck.RawExpires,
-			MaxAge:      ck.MaxAge,
-			Secure:      ck.Secure,
-			HttpOnly:    ck.HttpOnly,
-			SameSite:    _http.SameSite(ck.SameSite),
-			Partitioned: ck.Partitioned,
-			Raw:         ck.Raw,
-			Unparsed:    ck.Unparsed,
-		})
-	}
-
-	c.jar.SetCookies(u, _cookies)
-}
-
-// Cookies implements http.CookieJar interface.
-// It retrieves cookies from the underlying surf cookie jar and
-// converts them to standard net/http cookie format.
-func (c *CookieJarAdapter) Cookies(u *url.URL) []*http.Cookie {
-	_cookies := c.jar.Cookies(u)
-	if len(_cookies) == 0 {
-		return nil
-	}
-
 	cookies := make([]*http.Cookie, 0, len(_cookies))
-
 	for _, ck := range _cookies {
 		cookies = append(cookies, &http.Cookie{
 			Name:        ck.Name,
@@ -227,21 +194,54 @@ func (c *CookieJarAdapter) Cookies(u *url.URL) []*http.Cookie {
 		})
 	}
 
-	return cookies
+	c.jar.SetCookies(u, cookies)
+}
+
+// Cookies implements http.CookieJar interface.
+// It retrieves cookies from the underlying surf cookie jar and
+// converts them to standard net/http cookie format.
+func (c *CookieJarAdapter) Cookies(u *url.URL) []*_http.Cookie {
+	cookies := c.jar.Cookies(u)
+	if len(cookies) == 0 {
+		return nil
+	}
+
+	_cookies := make([]*_http.Cookie, 0, len(cookies))
+
+	for _, ck := range cookies {
+		_cookies = append(_cookies, &_http.Cookie{
+			Name:        ck.Name,
+			Value:       ck.Value,
+			Quoted:      ck.Quoted,
+			Path:        ck.Path,
+			Domain:      ck.Domain,
+			Expires:     ck.Expires,
+			RawExpires:  ck.RawExpires,
+			MaxAge:      ck.MaxAge,
+			Secure:      ck.Secure,
+			HttpOnly:    ck.HttpOnly,
+			SameSite:    _http.SameSite(ck.SameSite),
+			Partitioned: ck.Partitioned,
+			Raw:         ck.Raw,
+			Unparsed:    ck.Unparsed,
+		})
+	}
+
+	return _cookies
 }
 
 // redirect adapts surf's redirect policy function to work with standard net/http.
 // It converts net/http requests to enetx/http format, calls the surf redirect policy,
 // and returns the result. This ensures custom redirect policies work correctly
 // through the standard http.Client interface.
-func redirect(fn func(*_http.Request, []*_http.Request) error) func(*http.Request, []*http.Request) error {
+func redirect(fn func(*http.Request, []*http.Request) error) func(*_http.Request, []*_http.Request) error {
 	if fn == nil {
 		return nil
 	}
 
-	return func(req *http.Request, via []*http.Request) error {
+	return func(req *_http.Request, via []*_http.Request) error {
 		_req := request(req)
-		_via := make([]*_http.Request, len(via))
+		_via := make([]*http.Request, len(via))
 		for i := range via {
 			_via[i] = request(via[i])
 		}
