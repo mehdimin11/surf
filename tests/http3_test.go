@@ -191,6 +191,31 @@ func TestHTTP3Compatibility(t *testing.T) {
 		}
 	})
 
+	t.Run("HTTP3 with SOCKS5 proxy support", func(t *testing.T) {
+		client := surf.NewClient().Builder().
+			Proxy("socks5://127.0.0.1:1080").
+			HTTP3Settings().Chrome().Set().
+			Build()
+
+		// Should have HTTP/3 transport when SOCKS5 proxy is set
+		if !client.IsHTTP3() {
+			t.Fatal("HTTP/3 should be active with SOCKS5 proxy")
+		}
+	})
+
+	t.Run("HTTP3 with DNS and SOCKS5 proxy", func(t *testing.T) {
+		client := surf.NewClient().Builder().
+			DNS("8.8.8.8:53").
+			Proxy("socks5://127.0.0.1:1080").
+			HTTP3Settings().Chrome().Set().
+			Build()
+
+		// Should have HTTP/3 transport with both DNS and SOCKS5 proxy
+		if !client.IsHTTP3() {
+			t.Fatal("HTTP/3 should be active with DNS + SOCKS5 proxy")
+		}
+	})
+
 	t.Run("HTTP3 with JA3 compatibility", func(t *testing.T) {
 		client := surf.NewClient().Builder().
 			JA().Chrome131().

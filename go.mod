@@ -12,6 +12,7 @@ require (
 	github.com/quic-go/quic-go v0.54.0
 	github.com/refraction-networking/uquic v0.0.6
 	github.com/refraction-networking/utls v1.8.0
+	github.com/wzshiming/socks5 v0.5.2
 	golang.org/x/net v0.43.0
 )
 

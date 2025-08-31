@@ -29,7 +29,7 @@
 - **Ordered Headers**: Browser-accurate header ordering for perfect fingerprint evasion
 - **Certificate Pinning**: Custom TLS certificate validation
 - **DNS-over-TLS**: Enhanced privacy with DoT support
-- **Proxy Support**: HTTP, HTTPS, and SOCKS5 proxy configurations with rotation support
+- **Proxy Support**: HTTP, HTTPS, and SOCKS5 proxy configurations with UDP support for HTTP/3
 
 ### 🚀 **Performance & Reliability**
 - **Connection Pooling**: Efficient connection reuse with singleton pattern
@@ -262,11 +262,18 @@ resp := client.Get("https://cloudflare-quic.com/").Do()
 HTTP/3 automatically handles compatibility issues:
 
 ```go
-// With proxy - automatically falls back to HTTP/2
+// With HTTP proxy - automatically falls back to HTTP/2
 client := surf.NewClient().
     Builder().
-    Proxy("http://proxy:8080").     // HTTP/3 incompatible with proxies
+    Proxy("http://proxy:8080").     // HTTP proxies incompatible with HTTP/3
     HTTP3Settings().Chrome().Set(). // Will use HTTP/2 instead
+    Build()
+
+// With SOCKS5 proxy - HTTP/3 works over UDP
+client := surf.NewClient().
+    Builder().
+    Proxy("socks5://127.0.0.1:1080"). // SOCKS5 UDP proxy supports HTTP/3
+    HTTP3Settings().Chrome().Set().   // Will use HTTP/3 over SOCKS5
     Build()
 
 // With DNS settings - works seamlessly
@@ -287,7 +294,8 @@ client := surf.NewClient().
 **Key HTTP/3 Features:**
 - ✅ **QUIC Fingerprinting**: Chrome and Firefox QUIC transport parameter matching
 - ✅ **Header Ordering**: Perfect browser-like header sequence preservation
-- ✅ **Automatic Fallback**: Smart fallback to HTTP/2 when proxies are configured
+- ✅ **SOCKS5 UDP Support**: HTTP/3 works seamlessly over SOCKS5 UDP proxies
+- ✅ **Automatic Fallback**: Smart fallback to HTTP/2 when HTTP proxies are configured
 - ✅ **DNS Integration**: Custom DNS and DNS-over-TLS support
 - ✅ **JA4QUIC Support**: Advanced QUIC fingerprinting beyond basic JA3/JA4
 - ✅ **Order Independence**: `HTTP3()` works regardless of call order
@@ -384,6 +392,34 @@ proxies := []string{
 client := surf.NewClient().
     Builder().
     Proxy(proxies).  // Randomly selects from list
+    Build()
+```
+
+### SOCKS5 UDP Proxy Support
+Surf supports HTTP/3 over SOCKS5 UDP proxies, combining the benefits of modern QUIC protocol with proxy functionality:
+
+```go
+// HTTP/3 over SOCKS5 UDP proxy
+client := surf.NewClient().
+    Builder().
+    Proxy("socks5://127.0.0.1:1080").
+    Impersonate().Chrome().
+    HTTP3().  // Uses HTTP/3 over SOCKS5 UDP
+    Build()
+
+// SOCKS5 with custom DNS resolution
+client := surf.NewClient().
+    Builder().
+    DNS("8.8.8.8:53").              // Custom DNS resolver
+    Proxy("socks5://proxy:1080").   // SOCKS5 UDP proxy
+    HTTP3().                        // HTTP/3 over SOCKS5
+    Build()
+
+// SOCKS5H (hostname resolution via proxy)
+client := surf.NewClient().
+    Builder().
+    Proxy("socks5h://proxy:1080").  // Hostname resolved by proxy
+    HTTP3().
     Build()
 ```
 
